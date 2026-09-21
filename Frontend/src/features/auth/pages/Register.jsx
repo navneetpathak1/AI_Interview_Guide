@@ -13,8 +13,10 @@ const Register = () => {
     
     const handleSubmit = async (e) => {
         e.preventDefault()
-        await handleRegister({username,email,password})
-        navigate("/")
+        const data = await handleRegister({username,email,password})
+        if (data?.user) {
+            navigate("/")
+        }
     }
 
     if(loading){

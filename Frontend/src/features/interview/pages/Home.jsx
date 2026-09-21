@@ -5,17 +5,89 @@ import { useNavigate } from 'react-router'
 
 const Home = () => {
 
-    const { loading, generateReport,reports } = useInterview()
+    const { loading, generateReport, reports } = useInterview()
     const [ jobDescription, setJobDescription ] = useState("")
     const [ selfDescription, setSelfDescription ] = useState("")
+    const [ resumeFile, setResumeFile ] = useState(null)
+    const [ isDragging, setIsDragging ] = useState(false)
+    const [ errorMessage, setErrorMessage ] = useState("")
     const resumeInputRef = useRef()
 
     const navigate = useNavigate()
 
+    const formatFileSize = (bytes) => {
+        if (!bytes) return "0 B"
+        const k = 1024
+        const sizes = [ "B", "KB", "MB" ]
+        const i = Math.floor(Math.log(bytes) / Math.log(k))
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[ i ]
+    }
+
+    const handleFileChange = (e) => {
+        const file = e.target.files?.[ 0 ]
+        if (file) {
+            if (!file.name.match(/\.(pdf|docx)$/i)) {
+                setErrorMessage("Please select a PDF or DOCX file.")
+                return
+            }
+            setResumeFile(file)
+            setErrorMessage("")
+        }
+    }
+
+    const handleDragOver = (e) => {
+        e.preventDefault()
+        setIsDragging(true)
+    }
+
+    const handleDragLeave = (e) => {
+        e.preventDefault()
+        setIsDragging(false)
+    }
+
+    const handleDrop = (e) => {
+        e.preventDefault()
+        setIsDragging(false)
+        const file = e.dataTransfer.files?.[ 0 ]
+        if (file) {
+            if (!file.name.match(/\.(pdf|docx)$/i)) {
+                setErrorMessage("Please drop a PDF or DOCX file.")
+                return
+            }
+            setResumeFile(file)
+            setErrorMessage("")
+        }
+    }
+
+    const handleRemoveFile = (e) => {
+        e.stopPropagation()
+        setResumeFile(null)
+        if (resumeInputRef.current) {
+            resumeInputRef.current.value = ""
+        }
+    }
+
     const handleGenerateReport = async () => {
-        const resumeFile = resumeInputRef.current.files[ 0 ]
-        const data = await generateReport({ jobDescription, selfDescription, resumeFile })
-        navigate(`/interview/${data._id}`)
+        if (!jobDescription.trim()) {
+            setErrorMessage("Please provide a Target Job Description.")
+            return
+        }
+        if (!resumeFile && !selfDescription.trim()) {
+            setErrorMessage("Please provide either a Resume or a Self Description.")
+            return
+        }
+        setErrorMessage("")
+
+        try {
+            const data = await generateReport({ jobDescription, selfDescription, resumeFile })
+            if (data?._id) {
+                navigate(`/interview/${data._id}`)
+            } else {
+                setErrorMessage("Could not generate interview plan. Please verify backend response.")
+            }
+        } catch (err) {
+            setErrorMessage(err.response?.data?.message || err.message || "Failed to generate report.")
+        }
     }
 
     if (loading) {
@@ -35,6 +107,13 @@ const Home = () => {
                 <p>Let our AI analyze the job requirements and your unique profile to build a winning strategy.</p>
             </header>
 
+            {errorMessage && (
+                <div className='error-banner'>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                    <span>{errorMessage}</span>
+                </div>
+            )}
+
             {/* Main Card */}
             <div className='interview-card'>
                 <div className='interview-card__body'>
@@ -49,12 +128,13 @@ const Home = () => {
                             <span className='badge badge--required'>Required</span>
                         </div>
                         <textarea
+                            value={jobDescription}
                             onChange={(e) => { setJobDescription(e.target.value) }}
                             className='panel__textarea'
                             placeholder={`Paste the full job description here...\ne.g. 'Senior Frontend Engineer at Google requires proficiency in React, TypeScript, and large-scale system design...'`}
                             maxLength={5000}
                         />
-                        <div className='char-counter'>0 / 5000 chars</div>
+                        <div className='char-counter'>{jobDescription.length} / 5000 chars</div>
                     </div>
 
                     {/* Vertical Divider */}
@@ -75,14 +155,58 @@ const Home = () => {
                                 Upload Resume
                                 <span className='badge badge--best'>Best Results</span>
                             </label>
-                            <label className='dropzone' htmlFor='resume'>
-                                <span className='dropzone__icon'>
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" /></svg>
-                                </span>
-                                <p className='dropzone__title'>Click to upload or drag &amp; drop</p>
-                                <p className='dropzone__subtitle'>PDF or DOCX (Max 5MB)</p>
-                                <input ref={resumeInputRef} hidden type='file' id='resume' name='resume' accept='.pdf,.docx' />
-                            </label>
+
+                            {resumeFile ? (
+                                <div className='file-attached'>
+                                    <div className='file-attached__info'>
+                                        <div className='file-attached__icon'>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                                        </div>
+                                        <div className='file-attached__details'>
+                                            <span className='file-attached__name' title={resumeFile.name}>{resumeFile.name}</span>
+                                            <div className='file-attached__meta'>
+                                                <span>{formatFileSize(resumeFile.size)}</span>
+                                                <span className='file-attached__badge'>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                                    Ready
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className='file-attached__actions'>
+                                        <button
+                                            type='button'
+                                            onClick={handleRemoveFile}
+                                            className='file-attached__btn'
+                                            title='Remove attached resume'>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                            Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <label
+                                    className={`dropzone ${isDragging ? 'dropzone--dragging' : ''}`}
+                                    htmlFor='resume'
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}>
+                                    <span className='dropzone__icon'>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="12" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" /></svg>
+                                    </span>
+                                    <p className='dropzone__title'>Click to upload or drag &amp; drop</p>
+                                    <p className='dropzone__subtitle'>PDF or DOCX (Max 10MB)</p>
+                                    <input
+                                        ref={resumeInputRef}
+                                        onChange={handleFileChange}
+                                        hidden
+                                        type='file'
+                                        id='resume'
+                                        name='resume'
+                                        accept='.pdf,.docx'
+                                    />
+                                </label>
+                            )}
                         </div>
 
                         {/* OR Divider */}
@@ -92,6 +216,7 @@ const Home = () => {
                         <div className='self-description'>
                             <label className='section-label' htmlFor='selfDescription'>Quick Self-Description</label>
                             <textarea
+                                value={selfDescription}
                                 onChange={(e) => { setSelfDescription(e.target.value) }}
                                 id='selfDescription'
                                 name='selfDescription'
