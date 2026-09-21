@@ -1,6 +1,7 @@
 const { z } = require("zod");
 const puppeteer = require("puppeteer");
 const { ChatGroq } = require("@langchain/groq");
+const { buildResumeHtml } = require("./resumeTemplate");
 
 // --------------------------------------------------
 // Groq Model
@@ -183,6 +184,11 @@ Return the result according to the provided structured schema.
 async function generatePdfFromHtml(htmlContent) {
     const browser = await puppeteer.launch({
         headless: true,
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage"
+        ]
     });
 
     try {
@@ -195,10 +201,10 @@ async function generatePdfFromHtml(htmlContent) {
         const pdfBuffer = await page.pdf({
             format: "A4",
             margin: {
-                top: "20mm",
-                bottom: "20mm",
-                left: "15mm",
-                right: "15mm",
+                top: "12mm",
+                bottom: "12mm",
+                left: "14mm",
+                right: "14mm",
             },
             printBackground: true,
         });
@@ -211,15 +217,83 @@ async function generatePdfFromHtml(htmlContent) {
 
 
 // --------------------------------------------------
-// Resume Schema
+// Structured Resume Schema
 // --------------------------------------------------
 
-const resumePdfSchema = z.object({
-    html: z
+const resumeDataSchema = z.object({
+    fullName: z
         .string()
-        .describe(
-            "The complete HTML content of the resume which can be converted to PDF using Puppeteer"
-        ),
+        .describe("Candidate's full name extracted from the resume or self description"),
+
+    targetTitle: z
+        .string()
+        .describe("Target professional headline or job role aligned with the target job"),
+
+    contact: z.object({
+        email: z.string().nullable().optional().describe("Email address"),
+        phone: z.string().nullable().optional().describe("Phone number"),
+        location: z.string().nullable().optional().describe("City, State or Country"),
+        linkedin: z.string().nullable().optional().describe("LinkedIn profile URL or handle"),
+        portfolio: z.string().nullable().optional().describe("Portfolio, GitHub or website URL"),
+    }),
+
+    summary: z
+        .string()
+        .describe("A compelling 2-4 sentence executive summary highlighting key strengths, domain experience, and value proposition tailored to the job description"),
+
+    skills: z.object({
+        coreSkills: z
+            .array(z.string())
+            .describe("Core technical and functional skills required by the job that candidate possesses"),
+        toolsAndTechnologies: z
+            .array(z.string())
+            .nullable()
+            .optional()
+            .describe("Software, tools, programming languages, libraries, and frameworks"),
+        methodologiesOrSoftSkills: z
+            .array(z.string())
+            .nullable()
+            .optional()
+            .describe("Methodologies (Agile, Scrum, CI/CD), leadership, or communication strengths"),
+    }),
+
+    experience: z.array(
+        z.object({
+            role: z.string().describe("Job title or role held"),
+            company: z.string().describe("Company or organization name"),
+            location: z.string().nullable().optional().describe("City, State or Remote"),
+            period: z.string().nullable().optional().describe("Dates of employment (e.g. 'Jan 2022 - Present' or '2020 - 2022')"),
+            highlights: z
+                .array(z.string())
+                .describe("3-5 high-impact achievement bullet points starting with strong action verbs (e.g., 'Engineered', 'Spearheaded', 'Optimized'). Do NOT include raw newline characters, bullet symbols, or escape sequences."),
+        })
+    ).nullable().optional(),
+
+    projects: z
+        .array(
+            z.object({
+                name: z.string().describe("Project name"),
+                technologies: z.string().nullable().optional().describe("Key technologies or tools used"),
+                description: z.string().describe("Concise overview of the project, candidate's contribution, and impact"),
+            })
+        )
+        .nullable()
+        .optional(),
+
+    education: z.array(
+        z.object({
+            degree: z.string().describe("Degree and field of study"),
+            institution: z.string().describe("University or College name"),
+            location: z.string().nullable().optional().describe("Location of institution"),
+            year: z.string().nullable().optional().describe("Graduation year or date range"),
+        })
+    ).nullable().optional(),
+
+    certifications: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe("Relevant certifications, credentials, or licenses"),
 });
 
 
@@ -233,46 +307,38 @@ async function generateResumePdf({
     jobDescription,
 }) {
     const prompt = `
-Generate a professional ATS-friendly resume for a candidate using the
-following information.
+You are an expert executive resume writer and career coach.
+Extract and synthesize the candidate's experience, skills, and background from their Resume and Self Description, and tailor it strategically for the Target Job Description.
 
-Resume:
+Candidate Resume:
 ${resume}
 
-Self Description:
+Candidate Self Description:
 ${selfDescription}
 
-Job Description:
+Target Job Description:
 ${jobDescription}
 
-Requirements:
-
-1. Tailor the resume to the given job description.
-2. Highlight relevant skills, projects, education and experience.
-3. Do not invent experience, skills, projects, education, certifications,
-   achievements or other information that is not present in the candidate data.
-4. The resume should sound naturally written by a human.
-5. Keep the resume concise and ideally 1-2 pages.
-6. Make it ATS-friendly.
-7. Use clean and professional HTML.
-8. Use simple CSS.
-9. Use standard readable fonts.
-10. Avoid unnecessary graphics, icons, tables and complicated layouts.
-11. Make sure the HTML is complete and can be directly rendered by Puppeteer.
-12. Return only the structured response according to the provided schema.
-
-Generate the HTML resume now.
+Instructions:
+1. Tailor the professional summary and skill highlights to emphasize the requirements of the job description.
+2. For each work experience entry:
+   - Provide 3-5 concise, achievement-oriented bullet points.
+   - Start each bullet with an active, powerful action verb (e.g., 'Designed', 'Orchestrated', 'Implemented', 'Boosted', 'Streamlined').
+   - Include quantifiable results and metrics where available in the source data.
+   - Do NOT include literal newline characters (\\n), bullet symbols (•, -, *), or markdown syntax within the bullet strings.
+3. Keep the content truthful to the candidate's actual background while framing it optimally for the target role.
+4. Return ONLY the structured response adhering to the schema.
 `;
 
     const structuredLLM = llm.withStructuredOutput(
-        resumePdfSchema
+        resumeDataSchema
     );
 
-    const response = await structuredLLM.invoke(prompt);
+    const structuredResume = await structuredLLM.invoke(prompt);
 
-    const pdfBuffer = await generatePdfFromHtml(
-        response.html
-    );
+    const html = buildResumeHtml(structuredResume);
+
+    const pdfBuffer = await generatePdfFromHtml(html);
 
     return pdfBuffer;
 }
